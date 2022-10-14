@@ -80,6 +80,8 @@ import org.onlab.packet.IPv4;
 import org.onlab.packet.MacAddress;
 import org.onlab.packet.UDP;
 import org.onlab.packet.dhcp.DhcpOption;
+import org.onlab.packet.PPPoED;
+import org.onlab.packet.PPPoEDTag;
 import org.onlab.util.KryoNamespace;
 import org.onosproject.core.CoreService;
 import org.onosproject.net.DeviceId;
@@ -125,6 +127,7 @@ import static org.opencord.maclearner.app.impl.OsgiPropertyConstants.CACHE_DURAT
 import static org.opencord.maclearner.app.impl.OsgiPropertyConstants.ENABLE_DHCP_FORWARD;
 import static org.opencord.maclearner.app.impl.OsgiPropertyConstants.ENABLE_DHCP_FORWARD_DEFAULT;
 import static org.osgi.service.component.annotations.ReferenceCardinality.MANDATORY;
+
 
 /**
  * Mac Learner Service implementation.
@@ -608,39 +611,47 @@ public class MacLearnerManager
                 return;
             }
 
+            if (packet.getEtherType () == Ethernet.TYPE_PPPOED) {
+                PPPoED ppPoEDPacket = (PPPoED) packet.getPayload();
+                //PacketContext context, Ethernet packet,PPPoED pppedPayload, PortNumber sourcePort, DeviceId deviceId, VlanId vlanId
+                processPpppoedPacket(context, packet, ppPoEDPacket, sourcePort, deviceId, vlan);
+
+
+            } else
+
             if (packet.getEtherType() == Ethernet.TYPE_IPV4) {
-                IPv4 ipv4Packet = (IPv4) packet.getPayload();
+            IPv4 ipv4Packet = (IPv4) packet.getPayload();
 
-                if (ipv4Packet.getProtocol() == IPv4.PROTOCOL_UDP) {
-                    UDP udpPacket = (UDP) ipv4Packet.getPayload();
-                    int udpSourcePort = udpPacket.getSourcePort();
-                    if ((udpSourcePort == UDP.DHCP_CLIENT_PORT) || (udpSourcePort == UDP.DHCP_SERVER_PORT)) {
-                        // Update host location
-                        HostLocation hloc = new HostLocation(cp, System.currentTimeMillis());
-                        HostLocation auxLocation = null;
-                        Optional<Link> optLink = linkService.getDeviceLinks(deviceId).stream().findFirst();
-                        if (optLink.isPresent()) {
-                            Link link = optLink.get();
-                            auxLocation = !link.src().deviceId().equals(deviceId) ?
-                                    new HostLocation(link.src(), System.currentTimeMillis()) :
-                                    new HostLocation(link.dst(), System.currentTimeMillis());
-                        } else {
-                            log.debug("Link not found for device {}", deviceId);
-                        }
-                        hostLocService.createOrUpdateHost(HostId.hostId(packet.getSourceMAC(), vlan),
-                                                          packet.getSourceMAC(), packet.getDestinationMAC(),
-                                                          vlan, innerVlan, outerTpid,
-                                                          hloc, auxLocation, null);
-                        DHCP dhcpPayload = (DHCP) udpPacket.getPayload();
-                        //This packet is dhcp.
-                        processDhcpPacket(context, packet, dhcpPayload, sourcePort, deviceId, vlan);
+            if (ipv4Packet.getProtocol() == IPv4.PROTOCOL_UDP) {
+                UDP udpPacket = (UDP) ipv4Packet.getPayload();
+                int udpSourcePort = udpPacket.getSourcePort();
+                if ((udpSourcePort == UDP.DHCP_CLIENT_PORT) || (udpSourcePort == UDP.DHCP_SERVER_PORT)) {
+                    // Update host location
+                    HostLocation hloc = new HostLocation(cp, System.currentTimeMillis());
+                    HostLocation auxLocation = null;
+                    Optional<Link> optLink = linkService.getDeviceLinks(deviceId).stream().findFirst();
+                    if (optLink.isPresent()) {
+                        Link link = optLink.get();
+                        auxLocation = !link.src().deviceId().equals(deviceId) ?
+                                new HostLocation(link.src(), System.currentTimeMillis()) :
+                                new HostLocation(link.dst(), System.currentTimeMillis());
+                    } else {
+                        log.debug("Link not found for device {}", deviceId);
+                    }
+                    hostLocService.createOrUpdateHost(HostId.hostId(packet.getSourceMAC(), vlan),
+                                                      packet.getSourceMAC(), packet.getDestinationMAC(),
+                                                      vlan, innerVlan, outerTpid,
+                                                      hloc, auxLocation, null);
+                    DHCP dhcpPayload = (DHCP) udpPacket.getPayload();
+                    //This packet is dhcp.
+                    processDhcpPacket(context, packet, dhcpPayload, sourcePort, deviceId, vlan);
 
-                        if (enableDhcpForward) {
-                            // Forward DHCP Packet to either uni or nni.
-                            forwardDhcpPacket(packet, dhcpPayload, device, vlan);
-                        }
+                    if (enableDhcpForward) {
+                        // Forward DHCP Packet to either uni or nni.
+                        forwardDhcpPacket(packet, dhcpPayload, device, vlan);
                     }
                 }
+            }
             }
         }
 
@@ -718,6 +729,35 @@ public class MacLearnerManager
             OutboundPacket o = new DefaultOutboundPacket(destinationCp
                     .deviceId(), t, ByteBuffer.wrap(packet.serialize()));
             packetService.emit(o);
+        }
+
+        /* This process PPPoED packets to get mac address of a client RG before forwarding. */
+        private void processPpppoedPacket(PacketContext context, Ethernet packet,
+                                          PPPoED pppoedPayload, PortNumber sourcePort,
+                                          DeviceId deviceId, VlanId vlanId) {
+            if (pppoedPayload == null) {
+                log.warn("PPPoED payload is null");
+                return;
+
+            }
+
+            //compare byte
+            byte incomingPacketType = pppoedPayload.getType();
+            if (incomingPacketType == null) {
+                log.warn("Incoming packet type is null!");
+                return;
+            }
+            log.info("Received PPPoED Packet of type {} from {}",
+
+                    incomingPacketType, context.inPacket().receivedFrom());
+
+            // PADI or PADS -> PADI becuase we need mac address even if the session not running
+            if (incomingPacketType.equals(PPPoED.PPPOED_CODE_PADI)) {
+
+                addToMacAddressMap(deviceId, sourcePort, vlanId, packet.getSourceMAC());
+
+            }
+
         }
 
         //process the dhcp packet before forwarding
