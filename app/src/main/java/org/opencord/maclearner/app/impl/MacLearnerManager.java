@@ -81,7 +81,6 @@ import org.onlab.packet.MacAddress;
 import org.onlab.packet.UDP;
 import org.onlab.packet.dhcp.DhcpOption;
 import org.onlab.packet.PPPoED;
-import org.onlab.packet.PPPoEDTag;
 import org.onlab.util.KryoNamespace;
 import org.onosproject.core.CoreService;
 import org.onosproject.net.DeviceId;
@@ -611,9 +610,8 @@ public class MacLearnerManager
                 return;
             }
 
-            if (packet.getEtherType () == Ethernet.TYPE_PPPOED) {
+            if (packet.getEtherType() == Ethernet.TYPE_PPPOED) {
                 PPPoED ppPoEDPacket = (PPPoED) packet.getPayload();
-                //PacketContext context, Ethernet packet,PPPoED pppedPayload, PortNumber sourcePort, DeviceId deviceId, VlanId vlanId
                 processPpppoedPacket(context, packet, ppPoEDPacket, sourcePort, deviceId, vlan);
 
 
@@ -741,21 +739,17 @@ public class MacLearnerManager
 
             }
 
-            //compare byte
             byte incomingPacketType = pppoedPayload.getType();
-            if (incomingPacketType == null) {
-                log.warn("Incoming packet type is null!");
-                return;
-            }
-            log.info("Received PPPoED Packet of type {} from {}",
 
+            log.info("Received PPPoED Packet of type {} from {}",
                     incomingPacketType, context.inPacket().receivedFrom());
 
-            // PADI or PADS -> PADI becuase we need mac address even if the session not running
-            if (incomingPacketType.equals(PPPoED.PPPOED_CODE_PADI)) {
-
+            if (Byte.compare(incomingPacketType, PPPoED.PPPOED_CODE_PADI) == 0 ||
+                    Byte.compare(incomingPacketType, PPPoED.PPPOED_CODE_PADT) == 0) {
                 addToMacAddressMap(deviceId, sourcePort, vlanId, packet.getSourceMAC());
 
+            } else {
+                log.info("Not a PADI or PADT, macaddressmap not updated.");
             }
 
         }
