@@ -614,7 +614,6 @@ public class MacLearnerManager
                 PPPoED ppPoEDPacket = (PPPoED) packet.getPayload();
                 processPpppoedPacket(context, packet, ppPoEDPacket, sourcePort, deviceId, vlan);
 
-
             } else
 
             if (packet.getEtherType() == Ethernet.TYPE_IPV4) {
@@ -733,19 +732,23 @@ public class MacLearnerManager
         private void processPpppoedPacket(PacketContext context, Ethernet packet,
                                           PPPoED pppoedPayload, PortNumber sourcePort,
                                           DeviceId deviceId, VlanId vlanId) {
+            //Verify if the PppoED Payload is present
             if (pppoedPayload == null) {
                 log.warn("PPPoED payload is null");
                 return;
 
             }
 
+            //Extract the PPPoED Packet Type: PADI, PADO, PADS, PADR, PADT
             byte incomingPacketType = pppoedPayload.getType();
 
             log.info("Received PPPoED Packet of type {} from {}",
                     incomingPacketType, context.inPacket().receivedFrom());
 
+            //Only the PADI or the PADT pkt are processed to create the Entry
             if (Byte.compare(incomingPacketType, PPPoED.PPPOED_CODE_PADI) == 0 ||
                     Byte.compare(incomingPacketType, PPPoED.PPPOED_CODE_PADT) == 0) {
+                //Entry creation
                 addToMacAddressMap(deviceId, sourcePort, vlanId, packet.getSourceMAC());
 
             } else {
