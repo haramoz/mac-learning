@@ -31,5 +31,6 @@ public final class OsgiPropertyConstants {
 
     public static final String ENABLE_DHCP_FORWARD = "enableDhcpForward";
     public static final boolean ENABLE_DHCP_FORWARD_DEFAULT = false;
+    public static final boolean ENABLE_PPPOE_FORWARD_DEFAULT = false;
 
 }

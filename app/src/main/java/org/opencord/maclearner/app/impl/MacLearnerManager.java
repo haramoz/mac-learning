@@ -119,12 +119,7 @@ import static com.google.common.base.Strings.isNullOrEmpty;
 import static java.util.stream.Collectors.toList;
 import static org.onlab.packet.DHCP.DHCPOptionCode.OptionCode_MessageType;
 import static org.onlab.util.Tools.groupedThreads;
-import static org.opencord.maclearner.app.impl.OsgiPropertyConstants.AUTO_CLEAR_MAC_MAPPING;
-import static org.opencord.maclearner.app.impl.OsgiPropertyConstants.AUTO_CLEAR_MAC_MAPPING_DEFAULT;
-import static org.opencord.maclearner.app.impl.OsgiPropertyConstants.CACHE_DURATION_DEFAULT;
-import static org.opencord.maclearner.app.impl.OsgiPropertyConstants.CACHE_DURATION;
-import static org.opencord.maclearner.app.impl.OsgiPropertyConstants.ENABLE_DHCP_FORWARD;
-import static org.opencord.maclearner.app.impl.OsgiPropertyConstants.ENABLE_DHCP_FORWARD_DEFAULT;
+import static org.opencord.maclearner.app.impl.OsgiPropertyConstants.*;
 import static org.osgi.service.component.annotations.ReferenceCardinality.MANDATORY;
 
 
@@ -211,6 +206,11 @@ public class MacLearnerManager
      * Enables Dhcp forwarding.
      */
     protected boolean enableDhcpForward = ENABLE_DHCP_FORWARD_DEFAULT;
+
+    /**
+     * Enables Pppoe forwarding.
+     */
+    protected boolean enablePppoeForward = ENABLE_PPPOE_FORWARD_DEFAULT;
 
     /**
      * Minimum duration of mapping, mapping can be exist until 2*cacheDuration because of cleanerTimer fixed rate.
@@ -611,12 +611,26 @@ public class MacLearnerManager
             }
 
             if (packet.getEtherType() == Ethernet.TYPE_PPPOED) {
+                log.info("Catching pppoe packet!");
                 PPPoED ppPoEDPacket = (PPPoED) packet.getPayload();
+
+                HostLocation hloc = new HostLocation(cp, System.currentTimeMillis());
+
+                hostLocService.createOrUpdateHost(HostId.hostId(packet.getSourceMAC(), vlan),
+                        packet.getSourceMAC(), packet.getDestinationMAC(),
+                        vlan, innerVlan, outerTpid,
+                        hloc, null, null); //pppoe has single vlan //auxl not needed for volt
+
                 processPpppoedPacket(context, packet, ppPoEDPacket, sourcePort, deviceId, vlan);
 
-            } else
+                // do we need to forward ?
+                if (enablePppoeForward) {
+                    // Forward Pppoe Packet to either uni or nni.
+                    //forwardPppoePacket(packet, ppPoEDPacket, device, vlan);
+                    log.info("Forwarding PPPOE packets are enabled but not implemented!");
+                }
 
-            if (packet.getEtherType() == Ethernet.TYPE_IPV4) {
+            } else if (packet.getEtherType() == Ethernet.TYPE_IPV4) {
             IPv4 ipv4Packet = (IPv4) packet.getPayload();
 
             if (ipv4Packet.getProtocol() == IPv4.PROTOCOL_UDP) {
@@ -638,6 +652,8 @@ public class MacLearnerManager
                     hostLocService.createOrUpdateHost(HostId.hostId(packet.getSourceMAC(), vlan),
                                                       packet.getSourceMAC(), packet.getDestinationMAC(),
                                                       vlan, innerVlan, outerTpid,
+                                                      //pppoe has single vlan
+                                                      // auxl not needed for volt
                                                       hloc, auxLocation, null);
                     DHCP dhcpPayload = (DHCP) udpPacket.getPayload();
                     //This packet is dhcp.
@@ -681,6 +697,64 @@ public class MacLearnerManager
 
             return null;
         }
+
+        /***
+         * Forwards the packet to uni port or nni port based on the Pppoe source port.
+         * Client PPPOE packets are transparently forwarded to the nni port.
+         * Server PPPOE replies are forwarded to the respective uni port based on the (mac,vlan) lookup
+         */
+        /*private void forwardPppoePacket(Ethernet packet, PPPoED pppoePayload, Device device, VlanId vlan) {
+            /*UDP udpPacket = (UDP) dhcpPayload.getParent();
+            int udpSourcePort = udpPacket.getSourcePort();
+            MacAddress clientMacAddress = MacAddress.valueOf(dhcpPayload.getClientHardwareAddress());
+
+            MacAddress clientMacAddress;
+            if (Byte.compare(pppoePayload.getType(), PPPoED.PPPOED_CODE_PADI) == 0 ||
+                    Byte.compare(pppoePayload.getType(), PPPoED.PPPOED_CODE_PADR) == 0) {
+
+                clientMacAddress = packet.getSourceMAC();
+            } else if (Byte.compare(pppoePayload.getType(), PPPoED.PPPOED_CODE_PADO) == 0 ||
+                    Byte.compare(pppoePayload.getType(), PPPoED.PPPOED_CODE_PADS) == 0) {
+                clientMacAddress = packet.getDestinationMAC();
+            } else {
+
+            }
+
+            ConnectPoint destinationCp = null;
+
+            if (udpSourcePort == UDP.DHCP_CLIENT_PORT) {
+                destinationCp = getUplinkConnectPointOfOlt(device.id());
+            } else if (udpSourcePort == UDP.DHCP_SERVER_PORT) {
+                Host host = hostService.getHost(HostId.hostId(clientMacAddress, vlan));
+
+                ElementId elementId = host.location().elementId();
+                PortNumber portNumber = host.location().port();
+
+                destinationCp = new ConnectPoint(elementId, portNumber);
+            }
+
+            if (destinationCp == null) {
+                log.error("No connect point to send msg to DHCP message");
+                return;
+            }
+
+            if (log.isTraceEnabled()) {
+                VlanId printVlan = VlanId.NONE;
+
+                if (vlan != null) {
+                    printVlan = vlan;
+                }
+
+                log.trace("Emitting : packet {}, with MAC {}, with VLAN {}, with connect point {}",
+                        getDhcpPacketType(dhcpPayload), clientMacAddress, printVlan, destinationCp);
+            }
+
+            TrafficTreatment t = DefaultTrafficTreatment.builder()
+                    .setOutput(destinationCp.port()).build();
+            OutboundPacket o = new DefaultOutboundPacket(destinationCp
+                    .deviceId(), t, ByteBuffer.wrap(packet.serialize()));
+            packetService.emit(o);
+        }*/
 
         /***
          * Forwards the packet to uni port or nni port based on the DHCP source port.
@@ -732,6 +806,7 @@ public class MacLearnerManager
         private void processPpppoedPacket(PacketContext context, Ethernet packet,
                                           PPPoED pppoedPayload, PortNumber sourcePort,
                                           DeviceId deviceId, VlanId vlanId) {
+            log.info("Process pppoe packet!");
             //Verify if the PppoED Payload is present
             if (pppoedPayload == null) {
                 log.warn("PPPoED payload is null");
@@ -748,6 +823,7 @@ public class MacLearnerManager
             //Only the PADI or the PADT pkt are processed to create the Entry
             if (Byte.compare(incomingPacketType, PPPoED.PPPOED_CODE_PADI) == 0 ||
                     Byte.compare(incomingPacketType, PPPoED.PPPOED_CODE_PADT) == 0) {
+                log.info("Entry from PADI or PADT created!");
                 //Entry creation
                 addToMacAddressMap(deviceId, sourcePort, vlanId, packet.getSourceMAC());
 
@@ -779,6 +855,7 @@ public class MacLearnerManager
                     incomingPacketType.equals(DHCP.MsgType.DHCPREQUEST)) {
                 addToMacAddressMap(deviceId, sourcePort, vlanId, packet.getSourceMAC());
             } else if (incomingPacketType.equals(DHCP.MsgType.DHCPACK)) {
+                //ONOS CLI ask for the ip add for the RG, for debug
                 MacAddress hostMac = MacAddress.valueOf(dhcpPayload.getClientHardwareAddress());
                 VlanId hostVlan = VlanId.vlanId(packet.getVlanID());
                 HostId hostId = HostId.hostId(hostMac, hostVlan);
