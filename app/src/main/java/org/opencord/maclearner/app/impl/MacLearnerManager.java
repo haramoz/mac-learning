@@ -621,7 +621,7 @@ public class MacLearnerManager
                         vlan, innerVlan, outerTpid,
                         hloc, null, null); //pppoe has single vlan //auxl not needed for volt
 
-                processPpppoedPacket(context, packet, ppPoEDPacket, sourcePort, deviceId, vlan);
+                processPppoedPacket(context, packet, ppPoEDPacket, sourcePort, deviceId, vlan);
 
                 // do we need to forward ?
                 if (enablePppoeForward) {
@@ -703,12 +703,12 @@ public class MacLearnerManager
          * Client PPPOE packets are transparently forwarded to the nni port.
          * Server PPPOE replies are forwarded to the respective uni port based on the (mac,vlan) lookup
          */
-        /*private void forwardPppoePacket(Ethernet packet, PPPoED pppoePayload, Device device, VlanId vlan) {
+        private void forwardPppoePacket(Ethernet packet, PPPoED pppoePayload, Device device, VlanId vlan) {
             /*UDP udpPacket = (UDP) dhcpPayload.getParent();
             int udpSourcePort = udpPacket.getSourcePort();
-            MacAddress clientMacAddress = MacAddress.valueOf(dhcpPayload.getClientHardwareAddress());
+            MacAddress clientMacAddress = MacAddress.valueOf(dhcpPayload.getClientHardwareAddress());*/
 
-            MacAddress clientMacAddress;
+            /*MacAddress clientMacAddress;
             if (Byte.compare(pppoePayload.getType(), PPPoED.PPPOED_CODE_PADI) == 0 ||
                     Byte.compare(pppoePayload.getType(), PPPoED.PPPOED_CODE_PADR) == 0) {
 
@@ -718,11 +718,26 @@ public class MacLearnerManager
                 clientMacAddress = packet.getDestinationMAC();
             } else {
 
+            }*/
+
+            MacAddress clientMacAddress = packet.getSourceMAC();
+            Host host = hostService.getHost(HostId.hostId(clientMacAddress, vlan));
+            ConnectPoint destinationCp;
+            if (host != null) {
+
+                ElementId elementId = host.location().elementId();
+                PortNumber portNumber = host.location().port();
+                destinationCp = new ConnectPoint(elementId, portNumber);
+
+            } else {
+
+                destinationCp = getUplinkConnectPointOfOlt(device.id());
+
             }
 
-            ConnectPoint destinationCp = null;
+            //ConnectPoint destinationCp = null;
 
-            if (udpSourcePort == UDP.DHCP_CLIENT_PORT) {
+            /*if (udpSourcePort == UDP.DHCP_CLIENT_PORT) {
                 destinationCp = getUplinkConnectPointOfOlt(device.id());
             } else if (udpSourcePort == UDP.DHCP_SERVER_PORT) {
                 Host host = hostService.getHost(HostId.hostId(clientMacAddress, vlan));
@@ -731,10 +746,10 @@ public class MacLearnerManager
                 PortNumber portNumber = host.location().port();
 
                 destinationCp = new ConnectPoint(elementId, portNumber);
-            }
+            }*/
 
             if (destinationCp == null) {
-                log.error("No connect point to send msg to DHCP message");
+                log.error("No connect point to send msg to PPPOE message");
                 return;
             }
 
@@ -746,7 +761,7 @@ public class MacLearnerManager
                 }
 
                 log.trace("Emitting : packet {}, with MAC {}, with VLAN {}, with connect point {}",
-                        getDhcpPacketType(dhcpPayload), clientMacAddress, printVlan, destinationCp);
+                        pppoePayload.getType(), clientMacAddress, printVlan, destinationCp);
             }
 
             TrafficTreatment t = DefaultTrafficTreatment.builder()
@@ -754,7 +769,7 @@ public class MacLearnerManager
             OutboundPacket o = new DefaultOutboundPacket(destinationCp
                     .deviceId(), t, ByteBuffer.wrap(packet.serialize()));
             packetService.emit(o);
-        }*/
+        }
 
         /***
          * Forwards the packet to uni port or nni port based on the DHCP source port.
@@ -803,9 +818,9 @@ public class MacLearnerManager
         }
 
         /* This process PPPoED packets to get mac address of a client RG before forwarding. */
-        private void processPpppoedPacket(PacketContext context, Ethernet packet,
-                                          PPPoED pppoedPayload, PortNumber sourcePort,
-                                          DeviceId deviceId, VlanId vlanId) {
+        private void processPppoedPacket(PacketContext context, Ethernet packet,
+                                         PPPoED pppoedPayload, PortNumber sourcePort,
+                                         DeviceId deviceId, VlanId vlanId) {
             log.info("Process pppoe packet!");
             //Verify if the PppoED Payload is present
             if (pppoedPayload == null) {
