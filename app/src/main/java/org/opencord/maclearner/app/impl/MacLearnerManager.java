@@ -616,17 +616,35 @@ public class MacLearnerManager
 
                 HostLocation hloc = new HostLocation(cp, System.currentTimeMillis());
 
-                hostLocService.createOrUpdateHost(HostId.hostId(packet.getSourceMAC(), vlan),
-                        packet.getSourceMAC(), packet.getDestinationMAC(),
-                        vlan, innerVlan, outerTpid,
-                        hloc, null, null); //pppoe has single vlan //auxl not needed for volt
+                //Verify if the PppoED Payload is present
+                if (ppPoEDPacket == null) {
+                    log.warn("PPPoED payload is null");
+                    return;
+                }
 
-                processPppoedPacket(context, packet, ppPoEDPacket, sourcePort, deviceId, vlan);
+                log.info("Received PPPoED Packet of type {} from {}",
+                        ppPoEDPacket.getType(), context.inPacket().receivedFrom());
+
+                //only if its a packet from client to server
+                if (isPadiOrPadr(ppPoEDPacket.getType())) {
+                    hostLocService.createOrUpdateHost(HostId.hostId(packet.getSourceMAC(), vlan),
+                            packet.getSourceMAC(), packet.getDestinationMAC(),
+                            vlan, innerVlan, outerTpid,
+                            hloc, null, null); //pppoe has single vlan //auxl not needed for volt
+
+                    //processPppoedPacket(context, packet, sourcePort, deviceId, vlan);
+                    log.info("Process pppoe packet!");
+                    //Entry creation
+                    addToMacAddressMap(deviceId, sourcePort, vlan, packet.getSourceMAC());
+
+                } else {
+                    log.info("createOrUpdateHost is NOT called!");
+                }
 
                 // do we need to forward ?
                 if (enablePppoeForward) {
                     // Forward Pppoe Packet to either uni or nni.
-                    //forwardPppoePacket(packet, ppPoEDPacket, device, vlan);
+                    forwardPppoePacket(packet, ppPoEDPacket, device, vlan);
                     log.info("Forwarding PPPOE packets are enabled but not implemented!");
                 }
 
@@ -720,8 +738,10 @@ public class MacLearnerManager
 
             }*/
 
-            MacAddress clientMacAddress = packet.getSourceMAC();
-            Host host = hostService.getHost(HostId.hostId(clientMacAddress, vlan));
+            MacAddress sourceMacAddress = packet.getSourceMAC();
+            // assumption the host address is only from client,
+            // if we lookup mac address of server, it wont return anything
+            Host host = hostService.getHost(HostId.hostId(sourceMacAddress, vlan));
             ConnectPoint destinationCp;
             if (host != null) {
 
@@ -730,23 +750,8 @@ public class MacLearnerManager
                 destinationCp = new ConnectPoint(elementId, portNumber);
 
             } else {
-
                 destinationCp = getUplinkConnectPointOfOlt(device.id());
-
             }
-
-            //ConnectPoint destinationCp = null;
-
-            /*if (udpSourcePort == UDP.DHCP_CLIENT_PORT) {
-                destinationCp = getUplinkConnectPointOfOlt(device.id());
-            } else if (udpSourcePort == UDP.DHCP_SERVER_PORT) {
-                Host host = hostService.getHost(HostId.hostId(clientMacAddress, vlan));
-
-                ElementId elementId = host.location().elementId();
-                PortNumber portNumber = host.location().port();
-
-                destinationCp = new ConnectPoint(elementId, portNumber);
-            }*/
 
             if (destinationCp == null) {
                 log.error("No connect point to send msg to PPPOE message");
@@ -761,7 +766,7 @@ public class MacLearnerManager
                 }
 
                 log.trace("Emitting : packet {}, with MAC {}, with VLAN {}, with connect point {}",
-                        pppoePayload.getType(), clientMacAddress, printVlan, destinationCp);
+                        pppoePayload.getType(), sourceMacAddress, printVlan, destinationCp);
             }
 
             TrafficTreatment t = DefaultTrafficTreatment.builder()
@@ -818,34 +823,27 @@ public class MacLearnerManager
         }
 
         /* This process PPPoED packets to get mac address of a client RG before forwarding. */
-        private void processPppoedPacket(PacketContext context, Ethernet packet,
-                                         PPPoED pppoedPayload, PortNumber sourcePort,
-                                         DeviceId deviceId, VlanId vlanId) {
-            log.info("Process pppoe packet!");
-            //Verify if the PppoED Payload is present
-            if (pppoedPayload == null) {
-                log.warn("PPPoED payload is null");
-                return;
+        /*private void processPppoedPacket(PacketContext context,
+                                         Ethernet packet,
+                                         PortNumber sourcePort,
+                                         DeviceId deviceId,
+                                         VlanId vlanId) {
 
-            }
+        }*/
 
-            //Extract the PPPoED Packet Type: PADI, PADO, PADS, PADR, PADT
-            byte incomingPacketType = pppoedPayload.getType();
+        private boolean isPadiOrPadr(byte incomingPacketType) {
 
-            log.info("Received PPPoED Packet of type {} from {}",
-                    incomingPacketType, context.inPacket().receivedFrom());
 
             //Only the PADI or the PADT pkt are processed to create the Entry
             if (Byte.compare(incomingPacketType, PPPoED.PPPOED_CODE_PADI) == 0 ||
-                    Byte.compare(incomingPacketType, PPPoED.PPPOED_CODE_PADT) == 0) {
-                log.info("Entry from PADI or PADT created!");
-                //Entry creation
-                addToMacAddressMap(deviceId, sourcePort, vlanId, packet.getSourceMAC());
+                    Byte.compare(incomingPacketType, PPPoED.PPPOED_CODE_PADR) == 0) {
+                log.info("Entry from PADI or PADR created!");
+                return true;
 
             } else {
                 log.info("Not a PADI or PADT, macaddressmap not updated.");
+                return false;
             }
-
         }
 
         //process the dhcp packet before forwarding
