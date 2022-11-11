@@ -626,13 +626,12 @@ public class MacLearnerManager
                         ppPoEDPacket.getType(), context.inPacket().receivedFrom());
 
                 //only if its a packet from client to server
-                if (isPadiOrPadr(ppPoEDPacket.getType())) {
+                if (isPadiOrPadr(ppPoEDPacket.getCode())) {
                     hostLocService.createOrUpdateHost(HostId.hostId(packet.getSourceMAC(), vlan),
                             packet.getSourceMAC(), packet.getDestinationMAC(),
                             vlan, innerVlan, outerTpid,
-                            hloc, null, null); //pppoe has single vlan //auxl not needed for volt
+                            hloc, null, null); //pppoe has single vlan auxl not needed for volt
 
-                    //processPppoedPacket(context, packet, sourcePort, deviceId, vlan);
                     log.info("Process pppoe packet!");
                     //Entry creation
                     addToMacAddressMap(deviceId, sourcePort, vlan, packet.getSourceMAC());
@@ -722,21 +721,6 @@ public class MacLearnerManager
          * Server PPPOE replies are forwarded to the respective uni port based on the (mac,vlan) lookup
          */
         private void forwardPppoePacket(Ethernet packet, PPPoED pppoePayload, Device device, VlanId vlan) {
-            /*UDP udpPacket = (UDP) dhcpPayload.getParent();
-            int udpSourcePort = udpPacket.getSourcePort();
-            MacAddress clientMacAddress = MacAddress.valueOf(dhcpPayload.getClientHardwareAddress());*/
-
-            /*MacAddress clientMacAddress;
-            if (Byte.compare(pppoePayload.getType(), PPPoED.PPPOED_CODE_PADI) == 0 ||
-                    Byte.compare(pppoePayload.getType(), PPPoED.PPPOED_CODE_PADR) == 0) {
-
-                clientMacAddress = packet.getSourceMAC();
-            } else if (Byte.compare(pppoePayload.getType(), PPPoED.PPPOED_CODE_PADO) == 0 ||
-                    Byte.compare(pppoePayload.getType(), PPPoED.PPPOED_CODE_PADS) == 0) {
-                clientMacAddress = packet.getDestinationMAC();
-            } else {
-
-            }*/
 
             MacAddress sourceMacAddress = packet.getSourceMAC();
             // assumption the host address is only from client,
@@ -822,29 +806,28 @@ public class MacLearnerManager
             packetService.emit(o);
         }
 
-        /* This process PPPoED packets to get mac address of a client RG before forwarding. */
-        /*private void processPppoedPacket(PacketContext context,
-                                         Ethernet packet,
-                                         PortNumber sourcePort,
-                                         DeviceId deviceId,
-                                         VlanId vlanId) {
+        /**
+         * Checks the incoming packet code is PADI or PADR.
+         * @return Boolean
+         * */
+        private boolean isPadiOrPadr(byte incomingPacketCode) {
+            //TODO remove after testing or debug
+            log.info("PADI is type: {}", PPPoED.PPPOED_CODE_PADI);
+            log.info("PADR is type: {}", PPPoED.PPPOED_CODE_PADR);
+            log.info("Received PPPoED Packet of type {}", incomingPacketCode);
 
-        }*/
-
-        private boolean isPadiOrPadr(byte incomingPacketType) {
-
-
-            //Only the PADI or the PADT pkt are processed to create the Entry
-            if (Byte.compare(incomingPacketType, PPPoED.PPPOED_CODE_PADI) == 0 ||
-                    Byte.compare(incomingPacketType, PPPoED.PPPOED_CODE_PADR) == 0) {
-                log.info("Entry from PADI or PADR created!");
+            //Only the PADI or the PADR pkt are processed to create the Entry
+            if (Byte.compare(incomingPacketCode, PPPoED.PPPOED_CODE_PADI) == 0 ||
+                    Byte.compare(incomingPacketCode, PPPoED.PPPOED_CODE_PADR) == 0) {
+                log.info("isPadiOrPadr: Entry from PADI or PADR created!");
                 return true;
 
             } else {
-                log.info("Not a PADI or PADT, macaddressmap not updated.");
+                log.info("isPadiOrPadr: Not a PADI or PADR, macaddressmap not updated.");
                 return false;
             }
         }
+
 
         //process the dhcp packet before forwarding
         private void processDhcpPacket(PacketContext context, Ethernet packet,
